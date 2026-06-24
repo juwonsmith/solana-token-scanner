@@ -36,6 +36,7 @@ async function oldestPage(conn: Connection, mint: PublicKey, maxPages = 8) {
       break;
     }
     before = batch[batch.length - 1].signature;
+    await new Promise((r) => setTimeout(r, 130));
   }
   return { page, reachedStart };
 }
@@ -67,18 +68,22 @@ export async function detectBundle(mintStr: string): Promise<BundleResult> {
     // earliest transactions, chronological
     const earliest = [...page]
       .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
-      .slice(0, 24);
+      .slice(0, 20);
     const launchSlot = earliest[0]?.slot ?? 0;
-    const sigs = earliest.map((s) => s.signature);
-    // Fetch in small chunks — large JSON-RPC batches get rejected (413) on the
-    // Helius free tier.
-    const txns: Awaited<ReturnType<Connection["getParsedTransactions"]>> = [];
-    for (let i = 0; i < sigs.length; i += 6) {
-      const part = await conn.getParsedTransactions(sigs.slice(i, i + 6), {
-        maxSupportedTransactionVersion: 0,
-      });
-      txns.push(...part);
-      if (i + 6 < sigs.length) await new Promise((r) => setTimeout(r, 250));
+    // Fetch transactions ONE at a time — the Helius free tier rejects JSON-RPC
+    // batches (which getParsedTransactions uses). Pace single calls under the limit.
+    const txns: Awaited<ReturnType<Connection["getParsedTransaction"]>>[] = [];
+    for (const s of earliest) {
+      try {
+        txns.push(
+          await conn.getParsedTransaction(s.signature, {
+            maxSupportedTransactionVersion: 0,
+          })
+        );
+      } catch {
+        txns.push(null);
+      }
+      await new Promise((r) => setTimeout(r, 130));
     }
 
     // identify the launchpad from programs touched in the first txns
