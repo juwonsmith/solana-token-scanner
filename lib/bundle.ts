@@ -20,7 +20,7 @@ export type BundleResult = {
 
 // Page back to the oldest signatures (the launch). Bounded so we never hammer
 // the RPC — bundle detection targets recent launches, which reach the start fast.
-async function oldestPage(conn: Connection, mint: PublicKey, maxPages = 8) {
+async function oldestPage(conn: Connection, mint: PublicKey, maxPages = 40) {
   let before: string | undefined = undefined;
   let page: Awaited<ReturnType<Connection["getSignaturesForAddress"]>> = [];
   let reachedStart = false;
@@ -36,7 +36,7 @@ async function oldestPage(conn: Connection, mint: PublicKey, maxPages = 8) {
       break;
     }
     before = batch[batch.length - 1].signature;
-    await new Promise((r) => setTimeout(r, 130));
+    await new Promise((r) => setTimeout(r, 110));
   }
   return { page, reachedStart };
 }
@@ -61,7 +61,7 @@ export async function detectBundle(mintStr: string): Promise<BundleResult> {
         analyzed: false,
         status: "unknown",
         detail:
-          "This token has too long a history to trace its launch — bundle detection targets recent pump.fun / bonk launches.",
+          "This token has traded too much to reach its launch block on the current RPC — bundle detection works best on freshly-launched tokens (check them early).",
       };
     }
 
