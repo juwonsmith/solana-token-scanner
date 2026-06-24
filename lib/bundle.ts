@@ -64,7 +64,9 @@ async function fromRugcheck(mint: string): Promise<BundleResult | null> {
       networks.reduce((s, n) => s + (Number(n?.tokenAmount) || 0), 0) /
       Math.pow(10, decimals);
     const pct = supply ? (amount / supply) * 100 : 0;
-    const status = verdict(pct, wallets);
+    // For indexed insider data, weight % of supply — raw wallet counts get noisy
+    // on established tokens with legitimate transfer clusters (exchanges, airdrops).
+    const status: BundleResult["status"] = pct >= 20 ? "danger" : pct >= 5 ? "warn" : "safe";
 
     const detail =
       status === "danger"
