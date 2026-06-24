@@ -36,26 +36,59 @@ export type ScanReport = {
   verdict: "Looks Safe" | "Caution" | "High Risk";
 };
 
-async function fetchJupiterMeta(mint: string) {
-  // try a couple of Jupiter token-API hosts; best-effort, never blocks the scan
-  const urls = [
+async function fetchMeta(mint: string) {
+  // Prefer Helius DAS getAsset — reliable on the free tier for name/symbol/logo
+  if (RPC.includes("helius")) {
+    try {
+      const res = await fetch(RPC, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "meta",
+          method: "getAsset",
+          params: { id: mint },
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const j = await res.json();
+      const a = j?.result;
+      const name = a?.content?.metadata?.name as string | undefined;
+      const symbol = a?.content?.metadata?.symbol as string | undefined;
+      const logoURI = (a?.content?.links?.image || a?.content?.files?.[0]?.uri) as
+        | string
+        | undefined;
+      if (name || symbol) return { name, symbol, logoURI };
+    } catch {
+      /* fall back to Jupiter */
+    }
+  }
+  for (const url of [
     `https://lite-api.jup.ag/tokens/v1/token/${mint}`,
     `https://tokens.jup.ag/token/${mint}`,
-  ];
-  for (const url of urls) {
+  ]) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) continue;
       const j = await res.json();
       if (j?.name || j?.symbol) {
-        return {
-          name: j?.name as string | undefined,
-          symbol: j?.symbol as string | undefined,
-          logoURI: j?.logoURI as string | undefined,
-        };
+        return { name: j?.name, symbol: j?.symbol, logoURI: j?.logoURI };
       }
     } catch {
       /* try next */
+    }
+  }
+  return null;
+}
+
+// getTokenLargestAccounts is heavy/indexed — retry transient "overloaded" errors
+async function largestWithRetry(conn: Connection, mint: PublicKey, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await conn.getTokenLargestAccounts(mint);
+    } catch {
+      if (i === tries - 1) return null;
+      await new Promise((r) => setTimeout(r, 700));
     }
   }
   return null;
@@ -74,8 +107,8 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
 
   const [info, largest, meta] = await Promise.all([
     conn.getParsedAccountInfo(mint),
-    conn.getTokenLargestAccounts(mint).catch(() => null),
-    fetchJupiterMeta(address),
+    largestWithRetry(conn, mint),
+    fetchMeta(address),
   ]);
 
   if (!info.value) throw new Error("No account found for that address on mainnet.");

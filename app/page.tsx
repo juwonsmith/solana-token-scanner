@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ScanReport } from "@/lib/scan";
+import type { BundleResult } from "@/lib/bundle";
 
 const EXAMPLES = [
   { label: "BONK", address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" },
@@ -33,6 +34,8 @@ export default function Home() {
   const [report, setReport] = useState<ScanReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bundle, setBundle] = useState<BundleResult | null>(null);
+  const [bundleLoading, setBundleLoading] = useState(false);
 
   async function scan(addr?: string) {
     const a = (addr ?? address).trim();
@@ -41,6 +44,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setReport(null);
+    setBundle(null);
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
@@ -54,6 +58,30 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Scan failed.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function bundleScan() {
+    if (!report) return;
+    setBundleLoading(true);
+    setBundle(null);
+    try {
+      const res = await fetch("/api/bundle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: report.address }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Bundle analysis failed.");
+      setBundle(json as BundleResult);
+    } catch (e) {
+      setBundle({
+        analyzed: false,
+        status: "unknown",
+        detail: e instanceof Error ? e.message : "Bundle analysis failed.",
+      });
+    } finally {
+      setBundleLoading(false);
     }
   }
 
@@ -197,6 +225,41 @@ export default function Home() {
               </div>
             </div>
           )}
+
+          {/* bundle / sniper check (pump.fun / bonk launches) */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-white/80">Bundle / sniper check</div>
+                <div className="text-xs text-white/40">
+                  Scans the launch block for coordinated insider buys (pump.fun / bonk).
+                </div>
+              </div>
+              <button
+                onClick={() => bundleScan()}
+                disabled={bundleLoading}
+                className="shrink-0 rounded-lg border border-brand/40 bg-brand/10 px-4 py-2 text-sm font-medium text-brand transition-opacity hover:opacity-80 disabled:opacity-50"
+              >
+                {bundleLoading ? "Analyzing…" : "Check bundle"}
+              </button>
+            </div>
+            {bundle && (
+              <div className="mt-4 flex items-start gap-3 border-t border-white/10 pt-4">
+                <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${DOT[bundle.status]}`} />
+                <div>
+                  <div className="font-medium">
+                    {bundle.launchpad || "Bundle analysis"}
+                    {typeof bundle.bundledPct === "number" && (
+                      <span className="ml-2 font-mono text-white/50">
+                        {bundle.bundledPct.toFixed(1)}% bundled
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-white/60">{bundle.detail}</div>
+                </div>
+              </div>
+            )}
+          </div>
 
           <p className="text-center text-xs text-white/30">
             On-chain signals only — not financial advice. Always do your own research.
