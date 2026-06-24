@@ -67,12 +67,19 @@ export async function detectBundle(mintStr: string): Promise<BundleResult> {
     // earliest transactions, chronological
     const earliest = [...page]
       .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
-      .slice(0, 40);
+      .slice(0, 24);
     const launchSlot = earliest[0]?.slot ?? 0;
     const sigs = earliest.map((s) => s.signature);
-    const txns = await conn.getParsedTransactions(sigs, {
-      maxSupportedTransactionVersion: 0,
-    });
+    // Fetch in small chunks — large JSON-RPC batches get rejected (413) on the
+    // Helius free tier.
+    const txns: Awaited<ReturnType<Connection["getParsedTransactions"]>> = [];
+    for (let i = 0; i < sigs.length; i += 6) {
+      const part = await conn.getParsedTransactions(sigs.slice(i, i + 6), {
+        maxSupportedTransactionVersion: 0,
+      });
+      txns.push(...part);
+      if (i + 6 < sigs.length) await new Promise((r) => setTimeout(r, 250));
+    }
 
     // identify the launchpad from programs touched in the first txns
     let launchpad = "Unknown launchpad";
@@ -136,7 +143,7 @@ export async function detectBundle(mintStr: string): Promise<BundleResult> {
     return {
       analyzed: false,
       status: "unknown",
-      detail: "Bundle analysis failed (RPC error). Try again in a moment.",
+      detail: "Bundle analysis hit an RPC limit — try again in a moment.",
     };
   }
 }
