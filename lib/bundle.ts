@@ -126,14 +126,14 @@ export async function detectBundle(mintStr: string): Promise<BundleResult> {
 
     let status: BundleResult["status"];
     let detail: string;
-    if (bundleWallets >= 5 && bundledPct >= 25) {
+    if (bundledPct >= 25 || bundleWallets >= 6) {
       status = "danger";
-      detail = `Likely BUNDLED — ${bundleWallets} wallets grabbed ${bundledPct.toFixed(
+      detail = `Likely BUNDLED — ${bundleWallets} wallet(s) grabbed ${bundledPct.toFixed(
         1
       )}% of supply in the launch block. High dump risk.`;
-    } else if (bundleWallets >= 3 && bundledPct >= 8) {
+    } else if (bundledPct >= 8 || bundleWallets >= 3) {
       status = "warn";
-      detail = `Possible bundle — ${bundleWallets} wallets took ${bundledPct.toFixed(
+      detail = `Possible bundle — ${bundleWallets} wallet(s) took ${bundledPct.toFixed(
         1
       )}% of supply at launch.`;
     } else {
