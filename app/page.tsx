@@ -160,7 +160,14 @@ export default function Home() {
                   {report.name || "Unknown token"}{" "}
                   {report.symbol && <span className="text-white/40">{report.symbol}</span>}
                 </div>
-                <div className="font-mono text-xs text-white/40">{short(report.address)}</div>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <span className="font-mono text-xs text-white/40">{short(report.address)}</span>
+                  {report.tokenStandard && (
+                    <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white/40">
+                      {report.tokenStandard}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <span

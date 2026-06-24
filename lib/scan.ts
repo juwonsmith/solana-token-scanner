@@ -20,6 +20,7 @@ export type Holder = {
 
 export type ScanReport = {
   address: string;
+  tokenStandard?: string;
   name?: string;
   symbol?: string;
   logoURI?: string;
@@ -116,7 +117,9 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
     program?: string;
     parsed?: { type?: string; info?: Record<string, unknown> };
   };
-  if (data?.program !== "spl-token" || data?.parsed?.type !== "mint") {
+  const program = data?.program;
+  const isToken2022 = program === "spl-token-2022";
+  if ((program !== "spl-token" && !isToken2022) || data?.parsed?.type !== "mint") {
     throw new Error("That address is not an SPL token mint.");
   }
 
@@ -125,6 +128,8 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
     freezeAuthority: string | null;
     decimals: number;
     supply: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    extensions?: any[];
   };
 
   const decimals = p.decimals;
@@ -139,6 +144,52 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
   });
   const top1Pct = topHolders[0]?.pct ?? 0;
   const top10Pct = topHolders.reduce((s, h) => s + h.pct, 0);
+
+  // Token-2022 extension risks (transfer fee, permanent delegate, hooks, default-frozen)
+  const extChecks: Check[] = [];
+  if (isToken2022) {
+    const exts = p.extensions ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stateOf = (n: string) => exts.find((e: any) => e?.extension === n)?.state;
+    const ZERO = "11111111111111111111111111111111";
+    const permDel = stateOf("permanentDelegate");
+    if (permDel?.delegate && permDel.delegate !== ZERO) {
+      extChecks.push({
+        label: "Permanent delegate",
+        status: "danger",
+        detail: "A permanent delegate can move or burn your tokens at any time — major rug vector.",
+      });
+    }
+    const fee = stateOf("transferFeeConfig");
+    const bps = Number(
+      fee?.newerTransferFee?.transferFeeBasisPoints ??
+        fee?.olderTransferFee?.transferFeeBasisPoints ??
+        0
+    );
+    if (bps > 0) {
+      extChecks.push({
+        label: "Transfer fee",
+        status: bps >= 1000 ? "danger" : "warn",
+        detail: `${(bps / 100).toFixed(1)}% fee is taken on every transfer/sell.`,
+      });
+    }
+    const hook = stateOf("transferHook");
+    if (hook?.programId && hook.programId !== ZERO) {
+      extChecks.push({
+        label: "Transfer hook",
+        status: "warn",
+        detail: "A transfer-hook program runs on every transfer — can restrict or block selling.",
+      });
+    }
+    const das = stateOf("defaultAccountState");
+    if (das?.accountState === "frozen") {
+      extChecks.push({
+        label: "Default frozen",
+        status: "danger",
+        detail: "New token accounts default to frozen — holders may be unable to trade.",
+      });
+    }
+  }
 
   const checks: Check[] = [
     {
@@ -155,6 +206,7 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
         ? "Active — the owner can freeze your tokens, blocking you from selling."
         : "Revoked — your tokens can never be frozen.",
     },
+    ...extChecks,
     ...(holderDataAvailable
       ? ([
           {
@@ -188,6 +240,7 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
 
   return {
     address,
+    tokenStandard: isToken2022 ? "Token-2022" : "SPL Token",
     name: meta?.name,
     symbol: meta?.symbol,
     logoURI: meta?.logoURI,
