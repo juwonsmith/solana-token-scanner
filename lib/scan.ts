@@ -4,7 +4,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 // free Helius/QuickNode endpoint) in production for reliability.
 const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
 
-export type CheckStatus = "safe" | "warn" | "danger";
+export type CheckStatus = "safe" | "warn" | "danger" | "unknown";
 
 export type Check = {
   label: string;
@@ -37,21 +37,28 @@ export type ScanReport = {
 };
 
 async function fetchJupiterMeta(mint: string) {
-  try {
-    const res = await fetch(`https://tokens.jup.ag/token/${mint}`, {
-      // don't let metadata block the scan for long
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!res.ok) return null;
-    const j = await res.json();
-    return {
-      name: j?.name as string | undefined,
-      symbol: j?.symbol as string | undefined,
-      logoURI: j?.logoURI as string | undefined,
-    };
-  } catch {
-    return null;
+  // try a couple of Jupiter token-API hosts; best-effort, never blocks the scan
+  const urls = [
+    `https://lite-api.jup.ag/tokens/v1/token/${mint}`,
+    `https://tokens.jup.ag/token/${mint}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (j?.name || j?.symbol) {
+        return {
+          name: j?.name as string | undefined,
+          symbol: j?.symbol as string | undefined,
+          logoURI: j?.logoURI as string | undefined,
+        };
+      }
+    } catch {
+      /* try next */
+    }
   }
+  return null;
 }
 
 export async function scanToken(rawAddress: string): Promise<ScanReport> {
@@ -92,8 +99,9 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
   const mintAuthority = p.mintAuthority ?? null;
   const freezeAuthority = p.freezeAuthority ?? null;
 
+  const holderDataAvailable = (largest?.value?.length ?? 0) > 0;
   const topHolders: Holder[] = (largest?.value ?? []).slice(0, 10).map((h) => {
-    const ui = h.uiAmount ?? 0;
+    const ui = h.uiAmount ?? Number(h.amount) / Math.pow(10, decimals);
     return { address: h.address.toBase58(), uiAmount: ui, pct: supply ? (ui / supply) * 100 : 0 };
   });
   const top1Pct = topHolders[0]?.pct ?? 0;
@@ -114,18 +122,29 @@ export async function scanToken(rawAddress: string): Promise<ScanReport> {
         ? "Active — the owner can freeze your tokens, blocking you from selling."
         : "Revoked — your tokens can never be frozen.",
     },
-    {
-      label: "Largest holder",
-      status: top1Pct > 50 ? "danger" : top1Pct > 20 ? "warn" : "safe",
-      detail: `${top1Pct.toFixed(1)}% of supply held by a single account${
-        top1Pct > 50 ? " — extreme concentration / dump risk." : "."
-      }`,
-    },
-    {
-      label: "Top 10 concentration",
-      status: top10Pct > 80 ? "danger" : top10Pct > 50 ? "warn" : "safe",
-      detail: `${top10Pct.toFixed(1)}% of supply held by the top 10 accounts.`,
-    },
+    ...(holderDataAvailable
+      ? ([
+          {
+            label: "Largest holder",
+            status: (top1Pct > 50 ? "danger" : top1Pct > 20 ? "warn" : "safe") as CheckStatus,
+            detail: `${top1Pct.toFixed(1)}% of supply held by a single account${
+              top1Pct > 50 ? " — extreme concentration / dump risk." : "."
+            }`,
+          },
+          {
+            label: "Top 10 concentration",
+            status: (top10Pct > 80 ? "danger" : top10Pct > 50 ? "warn" : "safe") as CheckStatus,
+            detail: `${top10Pct.toFixed(1)}% of supply held by the top 10 accounts.`,
+          },
+        ] as Check[])
+      : ([
+          {
+            label: "Holder distribution",
+            status: "unknown" as CheckStatus,
+            detail:
+              "Unavailable on this RPC — set a Helius/QuickNode SOLANA_RPC for holder-concentration analysis.",
+          },
+        ] as Check[])),
   ];
 
   const riskScore =

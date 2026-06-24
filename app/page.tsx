@@ -18,6 +18,7 @@ const DOT: Record<string, string> = {
   safe: "bg-brand",
   warn: "bg-amber-400",
   danger: "bg-red-400",
+  unknown: "bg-white/30",
 };
 
 function fmt(n: number) {
