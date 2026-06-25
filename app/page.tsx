@@ -237,9 +237,9 @@ export default function Home() {
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-medium text-white/80">Bundle / sniper check</div>
+                <div className="text-sm font-medium text-white/80">Bundle &amp; risk check</div>
                 <div className="text-xs text-white/40">
-                  Scans the launch block for coordinated insider buys (pump.fun / bonk).
+                  Insider/bundle networks + deeper risk flags (pump.fun / bonk).
                 </div>
               </div>
               <button
@@ -251,19 +251,39 @@ export default function Home() {
               </button>
             </div>
             {bundle && (
-              <div className="mt-4 flex items-start gap-3 border-t border-white/10 pt-4">
-                <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${DOT[bundle.status]}`} />
-                <div>
-                  <div className="font-medium">
-                    {bundle.launchpad || "Bundle analysis"}
-                    {typeof bundle.bundledPct === "number" && (
-                      <span className="ml-2 font-mono text-white/50">
-                        {bundle.bundledPct.toFixed(1)}% bundled
-                      </span>
-                    )}
+              <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                <div className="flex items-start gap-3">
+                  <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${DOT[bundle.status]}`} />
+                  <div>
+                    <div className="font-medium">
+                      {bundle.launchpad || "Bundle analysis"}
+                      {typeof bundle.score === "number" && (
+                        <span className="ml-2 font-mono text-xs text-white/40">
+                          risk {bundle.score}/100
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-white/60">{bundle.detail}</div>
                   </div>
-                  <div className="text-sm text-white/60">{bundle.detail}</div>
                 </div>
+                {bundle.risks && bundle.risks.length > 0 && (
+                  <ul className="flex flex-wrap gap-2 pl-[22px]">
+                    {bundle.risks.map((rk, i) => (
+                      <li
+                        key={i}
+                        className={`rounded-full border px-2.5 py-1 text-xs ${
+                          rk.level === "danger"
+                            ? "border-red-400/40 bg-red-400/10 text-red-300"
+                            : rk.level === "warn"
+                            ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                            : "border-white/10 bg-white/5 text-white/50"
+                        }`}
+                      >
+                        {rk.name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
           </div>

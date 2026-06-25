@@ -18,6 +18,10 @@ export type BundleResult = {
   detail: string;
   /** which method produced the result */
   source?: "rugcheck" | "onchain";
+  /** RugCheck's other detected risks (creator history, liquidity, etc.) */
+  risks?: { name: string; level: string }[];
+  /** RugCheck normalized risk score (higher = riskier) */
+  score?: number;
 };
 
 function verdict(pct: number, wallets: number) {
@@ -43,18 +47,19 @@ async function fromRugcheck(mint: string): Promise<BundleResult | null> {
       : 0;
     const launchpad: string | undefined = r?.launchpad?.name;
 
-    // no insider networks indexed → genuinely clean
-    if (networks.length === 0 && !r?.graphInsidersDetected) {
-      return {
-        analyzed: true,
-        launchpad,
-        bundleWallets: 0,
-        bundledPct: 0,
-        status: "safe",
-        detail: "No insider / bundle networks detected (RugCheck index).",
-        source: "rugcheck",
-      };
-    }
+    // RugCheck's full risk list + overall score (the real safety picture)
+    const risks = Array.isArray(r?.risks)
+      ? r.risks
+          .map((x: any) => ({ name: String(x?.name ?? ""), level: String(x?.level ?? "info") }))
+          .filter((x: { name: string }) => x.name)
+          .slice(0, 8)
+      : [];
+    const score: number | undefined =
+      typeof r?.score_normalised === "number"
+        ? r.score_normalised
+        : typeof r?.score === "number"
+        ? r.score
+        : undefined;
 
     const wallets =
       networks.reduce((s, n) => s + (n?.size ?? n?.activeAccounts ?? 0), 0) ||
@@ -64,20 +69,22 @@ async function fromRugcheck(mint: string): Promise<BundleResult | null> {
       networks.reduce((s, n) => s + (Number(n?.tokenAmount) || 0), 0) /
       Math.pow(10, decimals);
     const pct = supply ? (amount / supply) * 100 : 0;
-    // For indexed insider data, weight % of supply — raw wallet counts get noisy
-    // on established tokens with legitimate transfer clusters (exchanges, airdrops).
-    const status: BundleResult["status"] = pct >= 20 ? "danger" : pct >= 5 ? "warn" : "safe";
+    // % of supply is the trustworthy bundle signal; wallet count only nudges warn.
+    const status: BundleResult["status"] =
+      pct >= 20 ? "danger" : pct >= 5 || wallets >= 5 ? "warn" : "safe";
 
     const detail =
-      status === "danger"
+      wallets === 0
+        ? "No insider / bundle networks detected at launch."
+        : status === "danger"
         ? `Likely BUNDLED — ${wallets} insider wallets across ${networks.length} network(s) hold ${pct.toFixed(
             1
-          )}% of supply. High dump risk.`
+          )}% of supply.`
         : status === "warn"
         ? `Possible bundle — ${wallets} insider wallets across ${networks.length} network(s) hold ${pct.toFixed(
             1
           )}% of supply.`
-        : `Low bundle signal — ${wallets} insider wallet(s) holding ${pct.toFixed(1)}% of supply.`;
+        : `Minimal bundling — ${wallets} insider wallet(s), ${pct.toFixed(1)}% of supply.`;
 
     return {
       analyzed: true,
@@ -87,6 +94,8 @@ async function fromRugcheck(mint: string): Promise<BundleResult | null> {
       status,
       detail,
       source: "rugcheck",
+      risks,
+      score,
     };
   } catch {
     return null;
